@@ -83,7 +83,6 @@ def main():
     parser.add_argument("--overlap", type=int, default=50, help="块间重叠字符数 (默认 50)")
     args = parser.parse_args()
 
-   
 
     input_path = args.input
     total_chunks = 0

@@ -1,13 +1,12 @@
 """
 llm.py — Ollama LLM 调用封装
-支持通过环境变量切换模型和地址
 """
 
 import os
 import requests
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")  # 默认用 qwen2.5 中文效果好
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
 SYSTEM_PROMPT = """你是一个专业的客服助手。请根据提供的参考资料来回答用户的问题。
 规则：
@@ -18,9 +17,6 @@ SYSTEM_PROMPT = """你是一个专业的客服助手。请根据提供的参考�
 
 
 def ask_llm(question: str, context_chunks: list[str]) -> str:
-    """
-    将检索到的文档片段和用户问题组装成 prompt，调用 Ollama 生成回答
-    """
     context_text = "\n---\n".join(context_chunks) if context_chunks else "（无相关参考资料）"
 
     user_prompt = f"""参考资料：

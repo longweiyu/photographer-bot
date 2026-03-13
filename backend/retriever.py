@@ -1,93 +1,107 @@
 """
 retriever.py — 向量检索模块
-使用 ChromaDB (嵌入式) + sentence-transformers 做 embedding
-兼容 Windows / macOS / Linux
+使用 Ollama Embedding + JSON 文件存储
+零编译依赖，Windows 友好
 """
 
 import os
-import chromadb
-from sentence_transformers import SentenceTransformer
+import json
+import math
+import requests
 
 # ---------- 配置 ----------
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_data")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "knowledge_base")
-EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+DB_PATH = os.getenv("DB_PATH", "./vector_store.json")
+
+# ---------- 内存缓存 ----------
+_store = None
 
 
-# ---------- 单例 ----------
-_client = None
-_collection = None
-_embedder = None
-
-def _get_client() -> chromadb.PersistentClient:
-    global _client
-    if _client is None:
-        os.makedirs(CHROMA_DB_PATH, exist_ok=True)
-        _client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-    return _client
-
-
-def _get_embedder() -> SentenceTransformer:
-    global _embedder
-    if _embedder is None:
-        _embedder = SentenceTransformer(EMBED_MODEL_NAME)
-    return _embedder
+def _load_store():
+    global _store
+    if _store is not None:
+        return _store
+    if os.path.exists(DB_PATH):
+        with open(DB_PATH, "r", encoding="utf-8") as f:
+            _store = json.load(f)
+    else:
+        _store = {"documents": []}
+    return _store
 
 
-def _get_collection():
-    global _collection
-    if _collection is None:
-        client = _get_client()
-        _collection = client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
-    return _collection
+def _save_store(store):
+    global _store
+    _store = store
+    with open(DB_PATH, "w", encoding="utf-8") as f:
+        json.dump(store, f, ensure_ascii=False, indent=2)
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    model = _get_embedder()
-    embeddings = model.encode(texts, normalize_embeddings=True)
-    return embeddings.tolist()
+def embed_texts(texts):
+    """调用 Ollama /api/embed 接口生成向量"""
+    url = f"{OLLAMA_BASE_URL}/api/embed"
+    payload = {
+        "model": EMBED_MODEL,
+        "input": texts,
+    }
+    resp = requests.post(url, json=payload, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["embeddings"]
 
 
-def insert(texts: list[str], metadatas: list[dict] | None = None):
-    collection = _get_collection()
-    vectors = embed_texts(texts)
+def _cosine_sim(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def insert(texts, metadatas=None):
+    """将文本片段写入向量库"""
+    store = _load_store()
     if metadatas is None:
         metadatas = [{"source": "unknown"}] * len(texts)
 
-    existing_count = collection.count()
-    ids = [f"doc_{existing_count + i}" for i in range(len(texts))]
+    batch_size = 10
+    total = 0
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i : i + batch_size]
+        batch_metas = metadatas[i : i + batch_size]
+        vectors = embed_texts(batch_texts)
 
-    collection.add(
-        ids=ids,
-        embeddings=vectors,
-        documents=texts,
-        metadatas=metadatas,
-    )
-    print(f"✅  已写入 {len(texts)} 条记录到 [{COLLECTION_NAME}]")
+        for text, vec, meta in zip(batch_texts, vectors, batch_metas):
+            store["documents"].append({
+                "text": text,
+                "source": meta.get("source", "unknown"),
+                "vector": vec,
+            })
+            total += 1
+        print(f"   已处理 {min(i + batch_size, len(texts))}/{len(texts)} ...")
+
+    _save_store(store)
+    print(f"✅  已写入 {total} 条记录，总计 {len(store['documents'])} 条")
 
 
-def search(query: str, top_k: int = 3) -> list[dict]:
-    collection = _get_collection()
+def search(query, top_k=3):
+    """查询 → 返回最相关的 top_k 条文档片段"""
+    store = _load_store()
 
-    if collection.count() == 0:
+    if not store["documents"]:
         return []
 
     query_vec = embed_texts([query])[0]
 
-    results = collection.query(
-        query_embeddings=[query_vec],
-        n_results=min(top_k, collection.count()),
-        include=["documents", "metadatas", "distances"],
-    )
-
-    hits = []
-    for i in range(len(results["ids"][0])):
-        hits.append({
-            "text": results["documents"][0][i],
-            "source": results["metadatas"][0][i].get("source", "unknown"),
-            "score": 1 - results["distances"][0][i],
+    scored = []
+    for doc in store["documents"]:
+        score = _cosine_sim(query_vec, doc["vector"])
+        scored.append({
+            "text": doc["text"],
+            "source": doc["source"],
+            "score": score,
         })
-    return hits
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:top_k]
