@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./frontend:/app/frontend:ro        # 前端静态文件
+      - ./data/docs:/app/docs:ro           # 知识库 txt 文件
+      - milvus_data:/app/milvus_data       # 向量数据持久化
+    environment:
+      - MILVUS_DB_PATH=/app/milvus_data/milvus.db
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434   # macOS/Windows
+      # Linux 用户请改为: http://172.17.0.1:11434
+      - OLLAMA_MODEL=qwen2.5:7b
+      - EMBED_MODEL=all-MiniLM-L6-v2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux 兼容
+
+volumes:
+  milvus_data:
