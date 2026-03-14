@@ -10,9 +10,9 @@ createApp({
     const API_BASE = window.location.origin;
 
     const quickQuestions = [
-      "你们的营业时间是？",
-      "如何退换货？",
-      "有哪些付款方式？",
+      "最早什么时候可以拍？",
+      "明天有时间吗？",
+      "如何预约？",
     ];
 
     function scrollToBottom() {
