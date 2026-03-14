@@ -33,15 +33,29 @@ class ChatResponse(BaseModel):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    """
-    1. 用户问题 → 向量检索相关文档片段
-    2. 片段 + 问题 → LLM 生成回答
-    """
     try:
         hits = search(req.question, top_k=req.top_k)
+
+        # ========== 命令行日志输出 ==========
+        print("\n" + "=" * 60)
+        print(f"📝 用户问题: {req.question}")
+        print("-" * 60)
+        if hits:
+            for i, h in enumerate(hits):
+                preview = h["text"][:80].replace("\n", " ")
+                print(f"  [{i+1}] 综合={h['score']}  向量={h.get('vec_score','-')}  关键词={h.get('kw_score','-')}")
+                print(f"      {preview}...")
+        else:
+            print("  ⚠️  未检索到相关文档（全部低于阈值）")
+        print("=" * 60)
+
         context_chunks = [h["text"] for h in hits]
         sources = [h["source"] for h in hits]
         answer = ask_llm(req.question, context_chunks)
+
+        print(f"🤖 回答: {answer[:100]}...")
+        print()
+
         return ChatResponse(answer=answer, sources=list(set(sources)))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
