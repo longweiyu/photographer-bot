@@ -11,7 +11,8 @@ import requests
 
 # ---------- 配置 ----------
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+# EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "shaw/dmeta-embedding-zh")
 DB_PATH = os.getenv("DB_PATH", "./vector_store.json")
 SCORE_THRESHOLD = float(os.getenv("SCORE_THRESHOLD", "0.3"))
 
